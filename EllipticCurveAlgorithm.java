@@ -1,96 +1,99 @@
 import java.math.BigInteger;
-import java.util.Random;
 
 public class EllipticCurve {
-    private static final BigInteger P = new BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16);
-    private static final BigInteger A = BigInteger.ZERO;
-    private static final BigInteger B = BigInteger.valueOf(7L);
-    private static final BigInteger GX = new BigInteger("55066263022277343669578718895168534326250603453777594175500187360389116729240");
-    private static final BigInteger GY = new BigInteger("32670510020758816978083085130507043184471273380659243275938904335757337482424");
+    private BigInteger a, b, p, Gx, Gy;
 
-    private static final Random rand = new Random();
-
-    public static class Point {
-        public BigInteger x, y;
-
-        public Point(BigInteger x, BigInteger y) {
-            this.x = x;
-            this.y = y;
-        }
-
-        public boolean isInfinity() {
-            return x == null && y == null;
-        }
-
-        public Point negate() {
-            return new Point(x, y.negate().mod(P));
-        }
-
-        public Point add(Point other) {
-            if (this.isInfinity()) {
-                return other;
-            }
-            if (other.isInfinity()) {
-                return this;
-            }
-            if (this.x.equals(other.x) && this.y.equals(other.y.negate().mod(P))) {
-                return new Point(null, null); // Infinity
-            }
-            if (!this.x.equals(other.x)) {
-                BigInteger slope = this.y.subtract(other.y).multiply(this.x.subtract(other.x).modInverse(P)).mod(P);
-                BigInteger x3 = slope.multiply(slope).subtract(this.x).subtract(other.x).mod(P);
-                BigInteger y3 = slope.multiply(this.x.subtract(x3)).subtract(this.y).mod(P);
-                return new Point(x3, y3);
-            } else {
-                BigInteger slope = this.x.pow(2).multiply(BigInteger.valueOf(3)).add(A).multiply(this.y.multiply(BigInteger.valueOf(2)).modInverse(P)).mod(P);
-                BigInteger x3 = slope.multiply(slope).subtract(this.x.multiply(BigInteger.valueOf(2))).mod(P);
-                BigInteger y3 = slope.multiply(this.x.subtract(x3)).subtract(this.y).mod(P);
-                return new Point(x3, y3);
-            }
-        }
-
-        public Point multiply(BigInteger n) {
-            if (n.equals(BigInteger.ZERO)) {
-                return new Point(null, null); // Infinity
-            }
-            Point p = this;
-            Point r = new Point(null, null); // Infinity
-            while (n.compareTo(BigInteger.ZERO) > 0) {
-                if (n.mod(BigInteger.valueOf(2)).equals(BigInteger.ONE)) {
-                    r = r.add(p);
-                }
-                p = p.add(p);
-                n = n.shiftRight(1);
-            }
-            return r;
-        }
-
-        @Override
-        public String toString() {
-            return "(" + x.toString(16) + ", " + y.toString(16) + ")";
-        }
+    public EllipticCurve(BigInteger a, BigInteger b, BigInteger p, BigInteger Gx, BigInteger Gy) {
+        this.a = a;
+        this.b = b;
+        this.p = p;
+        this.Gx = Gx;
+        this.Gy = Gy;
     }
+
+    public BigInteger[] pointAddition(BigInteger[] p1, BigInteger[] p2) {
+        BigInteger x1 = p1[0];
+        BigInteger y1 = p1[1];
+        BigInteger x2 = p2[0];
+        BigInteger y2 = p2[1];
+
+        BigInteger lambda, x3, y3;
+
+        if (x1.equals(x2) && y1.equals(y2)) { // Point doubling
+            lambda = x1.multiply(x1).multiply(BigInteger.valueOf(3)).add(a)
+                    .multiply(y1.multiply(BigInteger.valueOf(2)).modInverse(p));
+            x3 = lambda.multiply(lambda).subtract(x1.multiply(BigInteger.valueOf(2))).mod(p);
+            y3 = lambda.multiply(x1.subtract(x3)).subtract(y1).mod(p);
+        } else { // Point addition
+            lambda = y2.subtract(y1).multiply(x2.subtract(x1).modInverse(p));
+            x3 = lambda.multiply(lambda).subtract(x1).subtract(x2).mod(p);
+            y3 = lambda.multiply(x1.subtract(x3)).subtract(y1).mod(p);
+        }
+
+        return new BigInteger[] { x3, y3 };
+    }
+
+    public BigInteger[] scalarMultiplication(BigInteger[] p, BigInteger k) {
+        BigInteger[] result = new BigInteger[] { BigInteger.ZERO, BigInteger.ZERO };
+
+        while (k.compareTo(BigInteger.ZERO) > 0) {
+            if (k.and(BigInteger.ONE).equals(BigInteger.ONE)) {
+                result = pointAddition(result, p);
+            }
+            p = pointAddition(p, p);
+            k = k.shiftRight(1);
+        }
+
+        return result;
+    }
+
+    public BigInteger[] encrypt(BigInteger[] publicKey, String plaintext) {
+        BigInteger[] encrypted = new BigInteger[plaintext.length()];
+
+        for (int i = 0; i < plaintext.length(); i++) {
+            BigInteger charValue = BigInteger.valueOf(plaintext.charAt(i));
+            BigInteger[] sharedPoint = scalarMultiplication(publicKey, charValue);
+            encrypted[i] = sharedPoint[0];
+        }
+
+        return encrypted;
+    }
+
+    public String decrypt(BigInteger privateKey, BigInteger[] ciphertext) {
+        StringBuilder decrypted = new StringBuilder();
+
+        BigInteger[] sharedPoint = scalarMultiplication(new BigInteger[] { Gx, Gy }, privateKey.modInverse(p));
+
+        for (BigInteger c : ciphertext) {
+            BigInteger charValue = sharedPoint[0].multiply(c).mod(p);
+            decrypted.append((char) charValue.intValue());
+        }
+
+        return decrypted.toString();
+    }
+
     public static void main(String[] args) {
-     Point G = new Point(GX, GY);
-     BigInteger d = new BigInteger(256, rand);
-     Point Q = G.multiply(d);
-     System.out.println("Private key: " + d.toString(16));
-     System.out.println("Public key: " + Q.toString());
-        
-    String message = "I sense amogus";
-    byte[] bytes = message.getBytes();
-    BigInteger k = new BigInteger(256, rand);
-    Point P = G.multiply(k);
-    BigInteger x = P.x.mod(P);
+        BigInteger a = new BigInteger("2");
+        BigInteger b = new BigInteger("2");
+        BigInteger p = new BigInteger("17");
+        BigInteger Gx = new BigInteger("5");
+        BigInteger Gy = new BigInteger("1");
+        EllipticCurve curve = new EllipticCurve(a, b, p, Gx, Gy);
+
+        BigInteger privateKey = new BigInteger("5");
+        BigInteger[] publicKey = curve.scalarMultiplication(new BigInteger[] { Gx, Gy }, privateKey);
+
+        String plaintext = "Hello, world!";
+
+        // Encryption
+        BigInteger[] encrypted = curve.encrypt(publicKey, plaintext);
+        for (BigInteger c : encrypted) {
+            System.out.print(c + " ");
+        }
+        System.out.println();
+
+        // Decryption
+        String decrypted = curve.decrypt(privateKey, encrypted);
+        System.out.println(decrypted);
     }
 }
-
-
-
-
-
-
-
-
-
-
